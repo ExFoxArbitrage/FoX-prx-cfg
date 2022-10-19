@@ -1,5 +1,5 @@
 apt-get install gcc make git -y
-wget --no-check-certificate -O 3proxy.tar.gz https://github.com/ExFoxArbitrage/3proxy/raw/main/3proxy.tar.gz
+wget --no-check-certificate https://github.com/ExFoxArbitrage/3proxy/raw/main/3proxy.tar.gz
 tar xzf 3proxy.tar.gz
 cd 3proxy
 make -f Makefile.Linux
