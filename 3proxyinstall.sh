@@ -14,5 +14,5 @@ wget --no-check-certificate https://raw.githubusercontent.com/ExFoxArbitrage/3pr
 chmod 600 /etc/3proxy/.proxyauth
 cd /etc/init.d/
 wget --no-check-certificate  https://raw.githubusercontent.com/ExFoxArbitrage/3proxy/main/3proxy.txt
-chmod  +x /etc/init.d/3proxy
+chmod  +x /etc/init.d/3proxy.txt
 update-rc.d 3proxy defaults
