@@ -124,7 +124,6 @@ echo "root soft nofile 500000" >> /etc/security/limits.conf
 echo "* soft nproc 4000" >> /etc/security/limits.conf
 echo "* hard nproc 16000" >> /etc/security/limits.conf
 sysctl -p
-limits -p
 
 chmod -R 777 /usr/local/etc/3proxy/
 
