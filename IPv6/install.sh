@@ -43,7 +43,7 @@ users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' ${WORKDATA})
 
 $(awk -F "/" '{print "auth strong\n" \
 "allow "$1"\n" \
-"proxy -64 -n -a -p" $4 " -i" $3 " -e"$5"\n" \}' ${WORKDATA})
+"proxy -64 -n -a -p"$4" -i"$3" -e"$5"\n"}' ${WORKDATA})
 EOF
 }
 
@@ -68,13 +68,13 @@ gen_data() {
 
 gen_iptables() {
     cat <<EOF
-    $(awk -F "/" '{print "iptables -I INPUT -p tcp --dport " $4 "  -m state --state NEW -j ACCEPT"}' ${WORKDATA}) 
+    $(awk -F "/" '{print "iptables -I INPUT -p tcp --dport "$4"  -m state --state NEW -j ACCEPT"}' ${WORKDATA}) 
 EOF
 }
 
 gen_ifconfig() {
     cat <<EOF
-$(awk -F "/" '{print "ifconfig eth0 inet6 add " $5 "/64"}' ${WORKDATA})
+$(awk -F "/" '{print "ifconfig eth0 inet6 add "$5"/64"}' ${WORKDATA})
 EOF
 }
 yum -y install gcc net-tools bsdtar zip >/dev/null
