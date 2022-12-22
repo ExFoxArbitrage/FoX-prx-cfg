@@ -45,7 +45,5 @@ case "$1" in
        echo Usage: $0 "{start|stop|restart}"
        exit 1
 esac
-sudo iptables -A INPUT -p icmp --icmp-type echo-request -j REJECT
-sudo iptables -A INPUT -p tcp --dport 22 -j REJECT
 exit 0
 
