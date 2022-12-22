@@ -130,6 +130,8 @@ cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
 
+ulimit -n 999999
+
 service 3proxy start
 EOF
 
@@ -137,3 +139,4 @@ bash /etc/rc.local
 
 gen_proxy_file_for_user
 upload_proxy
+reboot
