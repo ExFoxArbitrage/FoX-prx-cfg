@@ -28,28 +28,25 @@ install_3proxy() {
 gen_3proxy() {
     cat <<EOF
 daemon
-maxconn 1000
 nscache 65536
-timeouts 1 5 30 60 180 1800 15 60
-setgid 65535
-setuid 65535
 stacksize 65536
-flush
-auth strong
-pidfile /usr/local/etc/3proxy/3proxy.pid
+timeouts 1 5 30 60 180 1800 15 60
+maxconn 1000
 
+flush
+log /dev/null
 
 users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' ${WORKDATA})
 
 $(awk -F "/" '{print "auth strong\n" \
 "allow "$1"\n" \
-"proxy -64 -n -a -p"$4" -i"$3" -e"$5"\n"}' ${WORKDATA})
+"proxy -n -a -s0 -64 -p"$4" -i"$3" -e"$5"\n"}' ${WORKDATA})
 EOF
 }
 
 gen_proxy_file_for_user() {
     cat >proxy.txt <<EOF
-$(awk -F "/" '{print $3 ":" $4 ":" $1 ":" $2 }' ${WORKDATA})
+$(awk -F "/" '{print $3":"$4":"$1":"$2}' ${WORKDATA})
 EOF
 }
 
@@ -111,8 +108,6 @@ chmod +x ${WORKDIR}/boot_*.sh /etc/rc.local
 
 gen_3proxy >/usr/local/etc/3proxy/3proxy.cfg
 
-
-#my
 echo "net.ipv6.conf.eth0.proxy_ndp=1" >> /etc/sysctl.conf
 echo "net.ipv6.conf.all.proxy_ndp=1" >> /etc/sysctl.conf
 echo "net.ipv6.conf.default.forwarding=1" >> /etc/sysctl.conf
