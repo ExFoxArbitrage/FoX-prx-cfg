@@ -1,6 +1,6 @@
 #!/bin/sh
 random() {
-	tr </dev/urandom -dc A-Za-z0-9 | head -c5
+	tr </dev/urandom -dc A-Za-z0-9 | head -c8
 	echo
 }
 
@@ -43,8 +43,7 @@ users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' ${WORKDATA})
 
 $(awk -F "/" '{print "auth strong\n" \
 "allow " $1 "\n" \
-"proxy -64 -n -a -p" $4 " -i" $3 " -e"$5"\n" \
-"flush\n"}' ${WORKDATA})
+"proxy -64 -n -a -p" $4 " -i" $3 " -e"$5"\n" \}' ${WORKDATA})
 EOF
 }
 
@@ -63,7 +62,7 @@ upload_proxy() {
 }
 gen_data() {
     seq $FIRST_PORT $LAST_PORT | while read port; do
-        echo "usr$(random)/pass$(random)/$IP4/$port/$(gen64 $IP6)"
+        echo "$(random)/$(random)/$IP4/$port/$(gen64 $IP6)"
     done
 }
 
@@ -122,6 +121,7 @@ echo "net.ipv6.ip_nonlocal_bind=1" >> /etc/sysctl.conf
 echo "vm.max_map_count=95120" >> /etc/sysctl.conf
 echo "kernel.pid_max=95120" >> /etc/sysctl.conf
 echo "net.ipv4.ip_local_port_range=1024 65000" >> /etc/sysctl.conf
+printf "fs.file-max = 500000" >> /etc/sysctl.conf && printf "hard nofile 500000\n* soft nofile 500000\nroot hard nofile 500000\nroot soft nofile 500000\n* soft nproc 4000\n* hard nproc 16000\nroot - memlock unlimited\nnet.ipv4.tcp_fin_timeout = 10\nnet.ipv4.tcp_max_syn_backlog = 4096\nnet.ipv4,tcp_synack_retries = 3\nnet.ipv4.tcp_syncookies = 1\nnet.ipv4.tcp_max_syn_backlog = 2048\nnet.ipv4.tcp_synack_retries = 3" >> /etc/security/limits.conf && printf "DefaultLimitDATA=infinity\nDefaultLimitSTACK=infinity\nDefaultLimitCORE=infinity\nDefaultLimitRSS=infinity\nDefaultLimitNOFILE=102400\nDefaultLimitAS=infinity\nDefaultLimitNPROC=10240\nDefaultLimitMEMLOCK=infinity" >> /etc/systemd/system.conf && printf "DefaultLimitDATA=infinity\nDefaultLimitSTACK=infinity\nDefaultLimitCORE=infinity\nDefaultLimitRSS=infinity\nDefaultLimitNOFILE=102400\nDefaultLimitAS=infinity\nDefaultLimitNPROC=10240\nDefaultLimitMEMLOCK=infinity" >> /etc/systemd/user.conf
 sysctl -p
 
 chmod -R 777 /usr/local/etc/3proxy/
@@ -129,7 +129,7 @@ chmod -R 777 /usr/local/etc/3proxy/
 cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
-ulimit -n 600000
+
 service 3proxy start
 EOF
 
