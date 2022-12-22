@@ -38,7 +38,7 @@ log /dev/null
 
 users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' ${WORKDATA})
 
-$(awk -F "/" '{print "auth strong\n" \
+$(awk -F "/" '{print "auth strong cache\n" \
 "allow "$1"\n" \
 "proxy -n -a -s0 -64 -p"$4" -i"$3" -e"$5"\n"}' ${WORKDATA})
 EOF
