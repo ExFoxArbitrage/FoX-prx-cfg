@@ -117,10 +117,10 @@ echo "net.ipv6.ip_nonlocal_bind=1" >> /etc/sysctl.conf
 echo "vm.max_map_count=95120" >> /etc/sysctl.conf
 echo "kernel.pid_max=95120" >> /etc/sysctl.conf
 echo "net.ipv4.ip_local_port_range=1024 65000" >> /etc/sysctl.conf
-echo "hard nofile 500000" >> /etc/security/limits.conf
-echo "* soft nofile 500000" >> /etc/security/limits.conf
-echo "root hard nofile 500000" >> /etc/security/limits.conf
-echo "root soft nofile 500000" >> /etc/security/limits.conf
+echo "hard nofile 5000000" >> /etc/security/limits.conf
+echo "* soft nofile 5000000" >> /etc/security/limits.conf
+echo "root hard nofile 5000000" >> /etc/security/limits.conf
+echo "root soft nofile 5000000" >> /etc/security/limits.conf
 echo "* soft nproc 4000" >> /etc/security/limits.conf
 echo "* hard nproc 16000" >> /etc/security/limits.conf
 sysctl -p
@@ -131,7 +131,7 @@ cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
 
-ulimit -n 999999
+ulimit -n 9999999
 
 service 3proxy start
 EOF
