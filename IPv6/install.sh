@@ -13,12 +13,11 @@ gen64() {
 		    }
 
 install_3proxy() {
-    echo "installing 3proxy"
     URL="https://github.com/3proxy/3proxy/archive/refs/tags/0.9.4.tar.gz"
     wget -qO- $URL | bsdtar -xvf-
     cd 3proxy-0.9.4
     make -f Makefile.Linux
-    mkdir -p /usr/local/etc/3proxy/{bin,logs,stat}
+    mkdir -p /usr/local/etc/3proxy/{bin,stat}
     cp bin/3proxy /usr/local/etc/3proxy/bin/
     cp ../init.d/3proxy.sh /etc/init.d/3proxy
     chmod +x /etc/init.d/3proxy
@@ -34,16 +33,9 @@ nscache 65536
 timeouts 1 5 30 60 180 1800 15 60
 setgid 65535
 setuid 65535
-stacksize 6000
+stacksize 65536
 flush
 auth strong
-allow admin
-admin -p25250
-log /usr/local/etc/3proxy/logs/3proxy.log
-logformat "- +_L%t.%. %N.%p %E %U %C:%c %R:%r %O %I %h %T"
-archiver gz /usr/bin/gzip %F
-#store the logs for 30 days
-rotate 1
 pidfile /usr/local/etc/3proxy/3proxy.pid
 
 
@@ -51,7 +43,7 @@ users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' ${WORKDATA})
 
 $(awk -F "/" '{print "auth strong\n" \
 "allow " $1 "\n" \
-"proxy -6 -n -a -p" $4 " -i" $3 " -e"$5"\n" \
+"proxy -64 -n -a -p" $4 " -i" $3 " -e"$5"\n" \
 "flush\n"}' ${WORKDATA})
 EOF
 }
@@ -63,13 +55,10 @@ EOF
 }
 
 upload_proxy() {
-    local PASS=$(random)
-    zip --password $PASS proxy.zip proxy.txt
-    URL=$(curl -s --upload-file proxy.zip https://transfer.sh/proxy.zip)
+    URL=$(curl -s --upload-file proxy.txt https://transfer.sh/proxy.txt)
     echo "Server ip = ${IP4}. Exteranl sub for ip6 = ${IP6}"
     echo "Proxy is ready! Format IP:PORT:LOGIN:PASS"
     echo "Download zip archive from: ${URL}"
-    echo "Password: ${PASS}"
 
 }
 gen_data() {
@@ -89,25 +78,31 @@ gen_ifconfig() {
 $(awk -F "/" '{print "ifconfig eth0 inet6 add " $5 "/64"}' ${WORKDATA})
 EOF
 }
-echo "installing apps"
 yum -y install gcc net-tools bsdtar zip >/dev/null
 
 install_3proxy
 
-echo "working folder = /home/proxy-installer"
 WORKDIR="/home/proxy-installer"
 WORKDATA="${WORKDIR}/data.txt"
 mkdir $WORKDIR && cd $_
 
-IP4=$(curl -4 -s icanhazip.com)
-IP6=$(curl -6 -s icanhazip.com | cut -f1-4 -d':')
+echo "Your IPv4 address:"
+read IPv4
+echo "Your IPv6 subnet:"
+read IPv6
+
+IP4=${IPv4}
+IP6=${IPv6}
 
 echo "Internal ip = ${IP4}. Exteranl sub for ip6 = ${IP6}"
 
-echo "How many proxy do you want to create? Example 500"
+echo "How many proxy do you want to create?"
 read COUNT
 
-FIRST_PORT=30000
+echo "Port starting proxies:"
+read START_PORT
+
+FIRST_PORT=${START_PORT}
 LAST_PORT=$(($FIRST_PORT + $COUNT))
 
 gen_data >$WORKDIR/data.txt
@@ -142,5 +137,4 @@ EOF
 bash /etc/rc.local
 
 gen_proxy_file_for_user
-
 upload_proxy
