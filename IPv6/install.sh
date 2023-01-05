@@ -29,9 +29,10 @@ gen_3proxy() {
     cat <<EOF
 daemon
 nscache 65536
+nscache6 65536
 stacksize 65536
 timeouts 1 5 30 60 180 1800 15 60
-maxconn 1000
+#maxconn 1000
 
 flush
 log /dev/null
