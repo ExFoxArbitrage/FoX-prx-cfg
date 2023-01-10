@@ -28,11 +28,7 @@ install_3proxy() {
 gen_3proxy() {
     cat <<EOF
 daemon
-nscache 65536
-nscache6 65536
-stacksize 65536
 timeouts 1 5 30 60 180 1800 15 60
-#maxconn 1000
 
 flush
 log /dev/null
@@ -54,7 +50,6 @@ EOF
 
 upload_proxy() {
     URL=$(curl -s --upload-file proxy.txt https://transfer.sh/proxy.txt)
-    echo "Server ip = ${IP4}. Exteranl sub for ip6 = ${IP6}"
     echo "Proxy is ready! Format IP:PORT:LOGIN:PASS"
     echo "Download zip archive from: ${URL}"
 
