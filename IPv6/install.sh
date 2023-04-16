@@ -120,8 +120,7 @@ cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
 
-printf "fs.file-max = 500000" >> /etc/sysctl.conf && printf "hard nofile 500000\n* soft nofile 500000\nroot hard nofile 500000\nroot soft nofile 500000\n* soft nproc 4000\n* hard nproc 16000\nroot - memlock unlimited\nnet.ipv4.tcp_fin_timeout = 10\nnet.ipv4.tcp_max_syn_backlog = 4096\nnet.ipv4,tcp_synack_retries = 3\nnet.ipv4.tcp_syncookies = 1\nnet.ipv4.tcp_max_syn_backlog = 2048\nnet.ipv4.tcp_synack_retries = 3" >> /etc/security/limits.conf && printf "DefaultLimitDATA=infinity\nDefaultLimitSTACK=infinity\nDefaultLimitCORE=infinity\nDefaultLimitRSS=infinity\nDefaultLimitNOFILE=102400\nDefaultLimitAS=infinity\nDefaultLimitNPROC=10240\nDefaultLimitMEMLOCK=infinity" >> /etc/systemd/system.conf && printf "DefaultLimitDATA=infinity\nDefaultLimitSTACK=infinity\nDefaultLimitCORE=infinity\nDefaultLimitRSS=infinity\nDefaultLimitNOFILE=102400\nDefaultLimitAS=infinity\nDefaultLimitNPROC=10240\nDefaultLimitMEMLOCK=infinity" >> /etc/systemd/user.conf
-ulimit -n 500000
+ulimit -n 999999
 
 service 3proxy start
 EOF
