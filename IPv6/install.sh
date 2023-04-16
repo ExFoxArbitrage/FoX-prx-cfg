@@ -28,6 +28,9 @@ install_3proxy() {
 gen_3proxy() {
     cat <<EOF
 daemon
+nscache 65536
+nscache6 65536
+
 timeouts 1 5 30 60 180 1800 15 60
 
 flush
@@ -37,7 +40,7 @@ users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' ${WORKDATA})
 
 $(awk -F "/" '{print "auth strong cache\n" \
 "allow "$1"\n" \
-"proxy -n -a -s0 -64 -olSO_REUSEADDR,SO_REUSEPORT -ocTCP_TIMESTAMPS,TCP_NODELAY -osTCP_NODELAY -p"$4" -i"$3" -e"$5"\n" \
+"proxy -n -a -s0 -64 -p"$4" -i"$3" -e"$5"\n" \
 "flush\n"}' ${WORKDATA})
 EOF
 }
@@ -114,7 +117,6 @@ echo "vm.max_map_count=95120" >> /etc/sysctl.conf
 echo "kernel.pid_max=95120" >> /etc/sysctl.conf
 echo "net.ipv4.ip_local_port_range=1024 65000" >> /etc/sysctl.conf
 sysctl -p
-#printf "fs.file-max = 500000" >> /etc/sysctl.conf && printf "hard nofile 500000\n* soft nofile 500000\nroot hard nofile 500000\nroot soft nofile 500000\n* soft nproc 4000\n* hard nproc 16000\nroot - memlock unlimited\nnet.ipv4.tcp_fin_timeout = 10\nnet.ipv4.tcp_max_syn_backlog = 4096\nnet.ipv4,tcp_synack_retries = 3\nnet.ipv4.tcp_syncookies = 1\nnet.ipv4.tcp_max_syn_backlog = 2048\nnet.ipv4.tcp_synack_retries = 3" >> /etc/security/limits.conf && printf "DefaultLimitDATA=infinity\nDefaultLimitSTACK=infinity\nDefaultLimitCORE=infinity\nDefaultLimitRSS=infinity\nDefaultLimitNOFILE=500000\nDefaultLimitAS=infinity\nDefaultLimitNPROC=500000\nDefaultLimitMEMLOCK=infinity" >> /etc/systemd/system.conf && printf "DefaultLimitDATA=infinity\nDefaultLimitSTACK=infinity\nDefaultLimitCORE=infinity\nDefaultLimitRSS=infinity\nDefaultLimitNOFILE=500000\nDefaultLimitAS=infinity\nDefaultLimitNPROC=500000\nDefaultLimitMEMLOCK=infinity" >> /etc/systemd/user.conf
 
 chmod -R 777 /usr/local/etc/3proxy/
 
@@ -122,7 +124,7 @@ cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
 
-ulimit -n 999999
+ulimit -n 99999999
 
 service 3proxy start
 EOF
@@ -131,4 +133,3 @@ bash /etc/rc.local
 
 gen_proxy_file_for_user
 upload_proxy
-sudo iptables -A INPUT -p icmp --icmp-type echo-request -j REJECT && sudo iptables -A INPUT -p tcp --dport 22 -j REJECT
