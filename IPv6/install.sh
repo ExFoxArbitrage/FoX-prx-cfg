@@ -28,11 +28,7 @@ install_3proxy() {
 gen_3proxy() {
     cat <<EOF
 daemon
-nscache 65536
-nscache6 65536
-
 timeouts 1 5 30 60 180 1800 15 60
-
 flush
 log /dev/null
 
@@ -40,7 +36,7 @@ users $(awk -F "/" 'BEGIN{ORS="";} {print $1 ":CL:" $2 " "}' ${WORKDATA})
 
 $(awk -F "/" '{print "auth strong cache\n" \
 "allow "$1"\n" \
-"proxy -n -a -s0 -64 -p"$4" -i"$3" -e"$5"\n" \
+"socks -n -a -s0 -64 -olSO_REUSEADDR,SO_REUSEPORT -ocTCP_TIMESTAMPS,TCP_NODELAY -osTCP_NODELAY -p"$4" -i"$3" -e"$5"\n" \
 "flush\n"}' ${WORKDATA})
 EOF
 }
@@ -124,7 +120,8 @@ cat >>/etc/rc.local <<EOF
 bash ${WORKDIR}/boot_iptables.sh
 bash ${WORKDIR}/boot_ifconfig.sh
 
-ulimit -n 99999999
+printf "fs.file-max = 500000" >> /etc/sysctl.conf && printf "hard nofile 500000\n* soft nofile 500000\nroot hard nofile 500000\nroot soft nofile 500000\n* soft nproc 4000\n* hard nproc 16000\nroot - memlock unlimited\nnet.ipv4.tcp_fin_timeout = 10\nnet.ipv4.tcp_max_syn_backlog = 4096\nnet.ipv4,tcp_synack_retries = 3\nnet.ipv4.tcp_syncookies = 1\nnet.ipv4.tcp_max_syn_backlog = 2048\nnet.ipv4.tcp_synack_retries = 3" >> /etc/security/limits.conf && printf "DefaultLimitDATA=infinity\nDefaultLimitSTACK=infinity\nDefaultLimitCORE=infinity\nDefaultLimitRSS=infinity\nDefaultLimitNOFILE=102400\nDefaultLimitAS=infinity\nDefaultLimitNPROC=10240\nDefaultLimitMEMLOCK=infinity" >> /etc/systemd/system.conf && printf "DefaultLimitDATA=infinity\nDefaultLimitSTACK=infinity\nDefaultLimitCORE=infinity\nDefaultLimitRSS=infinity\nDefaultLimitNOFILE=102400\nDefaultLimitAS=infinity\nDefaultLimitNPROC=10240\nDefaultLimitMEMLOCK=infinity" >> /etc/systemd/user.conf
+ulimit -n 500000
 
 service 3proxy start
 EOF
