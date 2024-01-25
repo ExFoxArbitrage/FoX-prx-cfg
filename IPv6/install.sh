@@ -129,4 +129,4 @@ bash /etc/rc.local
 
 gen_proxy_file_for_user
 upload_proxy
-sudo iptables -A INPUT -p icmp --icmp-type echo-request -j REJECT && sudo iptables -A INPUT -p tcp --dport 22 -j REJECT   
+#sudo iptables -A INPUT -p icmp --icmp-type echo-request -j REJECT && sudo iptables -A INPUT -p tcp --dport 22 -j REJECT   
