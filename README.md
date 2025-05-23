@@ -1,1 +1,1 @@
-3proxy
+FoX-prx-cfg
