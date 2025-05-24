@@ -571,8 +571,8 @@ generate_proxy_list() {
         [[ -n "$ipv6_addr" ]] && {
             local auto_port=$((START_PORT + i))
             echo "$user:$pass@$EXTERNAL_IPV4:$auto_port" >> "$PROXY_LIST_FILE"
-            echo ""
             echo "$EXTERNAL_IPV4:$auto_port:$user:$pass" >> "$PROXY_LIST_FILE"
+            echo "" >> "$PROXY_LIST_FILE"
         }
     done
     local proxy_count=$(wc -l < "$PROXY_LIST_FILE")
