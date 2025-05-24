@@ -570,6 +570,8 @@ generate_proxy_list() {
         local ipv6_addr="${IPV6_ADDRESSES[$i]:-}"
         [[ -n "$ipv6_addr" ]] && {
             local auto_port=$((START_PORT + i))
+            echo "$user:$pass@$EXTERNAL_IPV4:$auto_port" >> "$PROXY_LIST_FILE"
+            echo ""
             echo "$EXTERNAL_IPV4:$auto_port:$user:$pass" >> "$PROXY_LIST_FILE"
         }
     done
@@ -651,8 +653,7 @@ show_statistics() {
     log "🎉 УСТАНОВКА IPv6 PROXY ЗАВЕРШЕНА! (tg: @ExFox)"
     log "=========================================="
     log "📊 Сводка:"
-    local real_count=$(wc -l < "$PROXY_LIST_FILE" 2>/dev/null || echo "0")
-    log "   • Всего прокси: $real_count"
+    log "   • Всего прокси: $PROXY_COUNT"
     log "   • AUTO: порты $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
     log "   • IPv6 подсеть: $IPV6_SUBNET"
     log "   • Внешний IPv4: $EXTERNAL_IPV4"
