@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -8,7 +9,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="/home/3proxy"
 CONFIG_FILE="/home/3proxy/3proxy.cfg"
-SERVICE_FILE="/etc/systemd/system/3proxy.service"
+SERVICE_FILE="/tmp/3proxy.pid"
 PROXY_LIST_FILE="/tmp/proxy_list.txt"
 BACKUP_DIR="/home/3proxy/backup"
 
@@ -162,74 +163,19 @@ get_user_input() {
     done
 
     while true; do
-        if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
-            echo -n "Начальный порт для SOCKS5 (10000-40000): "
-        else
-            echo -n "Начальный порт для прокси (10000-40000): "
-        fi
+        echo -n "Начальный порт для прокси (10000-40000): "
         read START_PORT
+        local max_port=$((START_PORT + PROXY_COUNT - 1))
         if validate_port "$START_PORT" && [[ $START_PORT -ge 10000 && $START_PORT -le 40000 ]]; then
-            if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
-                local max_http_port=$((START_PORT + PROXY_COUNT * 2 - 1))
-                if [[ $max_http_port -le 65535 ]]; then
-                    if check_port_range "$START_PORT" "$PROXY_COUNT"; then
-                        HTTP_START_PORT=$((START_PORT + PROXY_COUNT))
-                        break
-                    else
-                        error "Некоторые порты в диапазоне уже заняты"
-                    fi
-                else
-                    error "Недостаточно портов. Максимальный порт будет: $max_http_port"
-                fi
+            if [[ $max_port -le 65535 ]]; then
+                break
             else
-                local max_port=$((START_PORT + PROXY_COUNT - 1))
-                if [[ $max_port -le 65535 ]]; then
-                    break
-                else
-                    error "Недостаточно портов. Максимальный порт будет: $max_port"
-                fi
+                error "Недостаточно портов. Максимальный порт будет: $max_port"
             fi
         else
             error "Неверный порт или порт занят"
         fi
     done
-
-    while true; do
-        echo -n "Тип прокси: (1) Классический (SOCKS5 + HTTP) (2) Авто-определение (один порт): "
-        read PROXY_TYPE_CHOICE
-        if [[ "$PROXY_TYPE_CHOICE" == "1" || "$PROXY_TYPE_CHOICE" == "2" ]]; then
-            break
-        else
-            error "Введите 1 или 2"
-        fi
-    done
-
-    while true; do
-        echo -n "Аутентификация: (1) Одинаковая для всех (2) Случайная для каждого: "
-        read AUTH_CHOICE
-        if [[ "$AUTH_CHOICE" == "1" || "$AUTH_CHOICE" == "2" ]]; then
-            break
-        else
-            error "Введите 1 или 2"
-        fi
-    done
-
-    if [[ "$AUTH_CHOICE" == "1" ]]; then
-        while true; do
-            echo -n "Имя пользователя: "; read PROXY_USER
-            if [[ ${#PROXY_USER} -ge 3 && ! "$PROXY_USER" =~ [[:space:]:] ]]; then
-                break
-            fi
-            error "Имя пользователя должно быть не менее 3 символов и не должно содержать пробелы, табы или двоеточия."
-        done
-        while true; do
-            echo -n "Пароль: "; read -s PROXY_PASS; echo
-            if [[ ${#PROXY_PASS} -ge 6 && ! "$PROXY_PASS" =~ [[:space:]:] ]]; then
-                break
-            fi
-            error "Пароль должен быть не менее 6 символов и не должен содержать пробелы, табы или двоеточия."
-        done
-    fi
 
     log "Настройка завершена"
 }
@@ -319,24 +265,42 @@ optimize_system() {
         cat >> /etc/security/limits.conf << 'EOF'
 
 # 3proxy limits
-* soft nofile 1000000
-* hard nofile 1000000
-root soft nofile 1000000
-root hard nofile 1000000
+* soft nofile 1048576
+* hard nofile 1048576
+root soft nofile 1048576
+root hard nofile 1048576
+* soft nproc 1048576
+* hard nproc 1048576
+root soft nproc 1048576
+root hard nproc 1048576
 EOF
     fi
 
+    SYSTEMD_CONF="/etc/systemd/system.conf"
+    if ! grep -q "DefaultLimitNOFILE" "$SYSTEMD_CONF" 2>/dev/null; then
+        echo "" >> "$SYSTEMD_CONF"
+        echo "# 3proxy limits" >> "$SYSTEMD_CONF"
+        echo "DefaultLimitDATA=infinity" >> "$SYSTEMD_CONF"
+        echo "DefaultLimitSTACK=infinity" >> "$SYSTEMD_CONF"
+        echo "DefaultLimitCORE=infinity" >> "$SYSTEMD_CONF"
+        echo "DefaultLimitRSS=infinity" >> "$SYSTEMD_CONF"
+        echo "DefaultLimitNOFILE=1048576" >> "$SYSTEMD_CONF"
+        echo "DefaultLimitAS=infinity" >> "$SYSTEMD_CONF"
+        echo "DefaultLimitNPROC=1048576" >> "$SYSTEMD_CONF"
+        echo "DefaultLimitMEMLOCK=infinity" >> "$SYSTEMD_CONF"
+    fi
+
     cat > /etc/sysctl.d/99-3proxy.conf << 'EOF'
-net.core.rmem_max = 134217728
-net.core.wmem_max = 134217728
-net.core.netdev_max_backlog = 5000
+net.core.rmem_max = 268435456
+net.core.wmem_max = 268435456
+net.core.netdev_max_backlog = 10000
 net.core.somaxconn = 65535
-net.ipv4.tcp_rmem = 4096 65536 134217728
-net.ipv4.tcp_wmem = 4096 65536 134217728
+net.ipv4.tcp_rmem = 4096 65536 268435456
+net.ipv4.tcp_wmem = 4096 65536 268435456
 net.ipv4.tcp_congestion_control = bbr
 net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_max_syn_backlog = 30000
-net.ipv4.tcp_max_tw_buckets = 2000000
+net.ipv4.tcp_max_syn_backlog = 60000
+net.ipv4.tcp_max_tw_buckets = 4000000
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_fin_timeout = 10
 net.ipv4.tcp_slow_start_after_idle = 0
@@ -352,8 +316,8 @@ net.ipv4.tcp_adv_win_scale = 1
 net.ipv4.tcp_moderate_rcvbuf = 1
 net.ipv4.tcp_no_metrics_save = 1
 net.ipv4.route.flush = 1
-net.ipv4.udp_rmem_min = 8192
-net.ipv4.udp_wmem_min = 8192
+net.ipv4.udp_rmem_min = 16384
+net.ipv4.udp_wmem_min = 16384
 net.ipv4.conf.default.log_martians = 0
 net.ipv4.conf.all.log_martians = 0
 net.ipv4.conf.default.accept_source_route = 0
@@ -366,7 +330,7 @@ net.ipv4.icmp_echo_ignore_all = 1
 net.ipv4.icmp_ignore_bogus_error_responses = 1
 net.ipv4.conf.default.rp_filter = 1
 net.ipv4.conf.all.rp_filter = 1
-net.ipv4.ip_local_port_range = 1024 65000
+net.ipv4.ip_local_port_range = 1024 65535
 net.ipv6.conf.default.accept_redirects = 0
 net.ipv6.conf.all.accept_redirects = 0
 net.ipv6.conf.default.accept_source_route = 0
@@ -379,12 +343,12 @@ net.ipv6.conf.default.proxy_ndp = 1
 net.ipv6.conf.all.forwarding = 1
 net.ipv6.conf.default.forwarding = 1
 net.ipv6.ip_nonlocal_bind = 1
-vm.swappiness = 10
-vm.dirty_ratio = 15
-vm.dirty_background_ratio = 5
-vm.max_map_count = 262144
-fs.file-max = 2000000
-kernel.pid_max = 262144
+vm.swappiness = 5
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 3
+vm.max_map_count = 1048576
+fs.file-max = 4000000
+kernel.pid_max = 1048576
 EOF
 
     if ! sysctl -p /etc/sysctl.d/99-3proxy.conf >/dev/null 2>&1; then
@@ -437,7 +401,7 @@ configure_ipv6() {
         if [ "$PROXY_COUNT" -gt 100 ]; then show_progress "$success" "$PROXY_COUNT"; fi
     done
 
-    [[ $PROXY_COUNT -gt 100 ]] && log ""
+    [[ $PROXY_COUNT -gt 100 ]]
 
     echo 1 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null || warning "Не удалось включить IPv6 forwarding"
 
@@ -459,13 +423,8 @@ generate_auth() {
     PROXY_CREDENTIALS=()
 
     for ((i=0; i<PROXY_COUNT; i++)); do
-        if [[ "$AUTH_CHOICE" == "1" ]]; then
-            PROXY_CREDENTIALS+=("$PROXY_USER:$PROXY_PASS")
-        else
-            local user="user$(printf "%04d" $((i+1)))"
-            local pass=$(random_string)
-            PROXY_CREDENTIALS+=("$user:$pass")
-        fi
+        local pass=$(random_string)
+        PROXY_CREDENTIALS+=("ExFox:$pass")
     done
 }
 
@@ -488,58 +447,28 @@ EOF
 
     local users_line="users "
     for cred in "${PROXY_CREDENTIALS[@]}"; do
-        users_line+="${cred%:*}:CL:${cred#*:} "
+        users_line+="ExFox:CL:${cred#*:} "
     done
     echo "$users_line" >> "$CONFIG_FILE"
     echo "" >> "$CONFIG_FILE"
 
-    local success_socks=0
-    local success_http=0
     local config_content=""
-
     for ((i=0; i<PROXY_COUNT; i++)); do
         local ipv6_addr="${IPV6_ADDRESSES[$i]:-}"
         local user_pass_pair="${PROXY_CREDENTIALS[$i]:-}"
-        local user=""
-
         [[ -z "$user_pass_pair" ]] && continue
-        user="${user_pass_pair%:*}"
         [[ -z "$ipv6_addr" || -z "$EXTERNAL_IPV4" ]] && continue
-
-        if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
-            local socks_port=$((START_PORT + i))
-            local http_port=$((HTTP_START_PORT + i))
-            config_content+="auth strong cache
-allow $user
-socks -n -a -s0 -64 -g -olSO_REUSEADDR,SO_REUSEPORT -ocTCP_TIMESTAMPS,TCP_NODELAY -osTCP_NODELAY -p$socks_port -i$EXTERNAL_IPV4 -e$ipv6_addr
-flush
-
-auth strong cache
-allow $user
-proxy -n -a -s0 -64 -g -olSO_REUSEADDR,SO_REUSEPORT -ocTCP_TIMESTAMPS,TCP_NODELAY -osTCP_NODELAY -p$http_port -i$EXTERNAL_IPV4 -e$ipv6_addr
-flush
-
-"
-            ((success_socks++))
-            ((success_http++))
-        else
-            local auto_port=$((START_PORT + i))
-            config_content+="auth strong cache
-allow $user
+        local auto_port=$((START_PORT + i))
+        config_content+="auth strong cache
+allow ExFox
 auto -n -a -s0 -64 -g -olSO_REUSEADDR,SO_REUSEPORT -ocTCP_TIMESTAMPS,TCP_NODELAY -osTCP_NODELAY -p$auto_port -i$EXTERNAL_IPV4 -e$ipv6_addr
 flush
 
 "
-            ((success_socks++))
-        fi
     done
 
     echo "$config_content" >> "$CONFIG_FILE"
-    if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
-        log "Конфигурация создана: $success_socks SOCKS5 + $success_http HTTP прокси"
-    else
-        log "Конфигурация создана: $success_socks AUTO прокси (SOCKS5 + HTTP)"
-    fi
+    log "Конфигурация создана: $PROXY_COUNT AUTO прокси (SOCKS5 + HTTP)"
 }
 
 configure_firewall() {
@@ -554,9 +483,6 @@ configure_firewall() {
         local ports=""
         for ((i=0; i<PROXY_COUNT; i++)); do
             ports+="$((START_PORT + i)),"
-            if [ "$PROXY_TYPE_CHOICE" = "1" ]; then
-                ports+="$((HTTP_START_PORT + i)),"
-            fi
         done
         ports="${ports%,}"
         if [ -n "$ports" ]; then
@@ -575,9 +501,6 @@ configure_firewall() {
         local ipt_ports=""
         for ((i=0; i<PROXY_COUNT; i++)); do
             ipt_ports+="$((START_PORT + i)) "
-            if [ "$PROXY_TYPE_CHOICE" = "1" ]; then
-                ipt_ports+="$((HTTP_START_PORT + i)) "
-            fi
         done
         for port in $ipt_ports; do
             iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
@@ -621,8 +544,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 BindReadOnlyPaths=$SCRIPT_DIR
 ReadWritePaths=/var/log /var/run /tmp
-LimitNOFILE=1000000
-LimitNPROC=1000000
+LimitNOFILE=1048576
+LimitNPROC=1048576
 
 [Install]
 WantedBy=multi-user.target
@@ -636,44 +559,16 @@ generate_proxy_list() {
     log "Генерация списка прокси..."
 
     local proxy_content=""
-    if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
-        proxy_content+="========== SOCKS5 ==========\n"
-        for ((i=0; i<PROXY_COUNT; i++)); do
-            local cred="${PROXY_CREDENTIALS[$i]}"
-            local user="${cred%:*}"
-            local pass="${cred#*:}"
-            local ipv6_addr="${IPV6_ADDRESSES[$i]:-}"
-            [[ -n "$ipv6_addr" ]] && {
-                local socks_port=$((START_PORT + i))
-                proxy_content+="$EXTERNAL_IPV4:$socks_port:$user:$pass\n"
-            }
-        done
-        proxy_content+="========== SOCKS5 ==========\n\n"
-
-        proxy_content+="========== HTTP ==========\n"
-        for ((i=0; i<PROXY_COUNT; i++)); do
-            local cred="${PROXY_CREDENTIALS[$i]}"
-            local user="${cred%:*}"
-            local pass="${cred#*:}"
-            local ipv6_addr="${IPV6_ADDRESSES[$i]:-}"
-            [[ -n "$ipv6_addr" ]] && {
-                local http_port=$((HTTP_START_PORT + i))
-                proxy_content+="$EXTERNAL_IPV4:$http_port:$user:$pass\n"
-            }
-        done
-        proxy_content+="========== HTTP ==========\n"
-    else
-        for ((i=0; i<PROXY_COUNT; i++)); do
-            local cred="${PROXY_CREDENTIALS[$i]}"
-            local user="${cred%:*}"
-            local pass="${cred#*:}"
-            local ipv6_addr="${IPV6_ADDRESSES[$i]:-}"
-            [[ -n "$ipv6_addr" ]] && {
-                local auto_port=$((START_PORT + i))
-                proxy_content+="$EXTERNAL_IPV4:$auto_port:$user:$pass\n"
-            }
-        done
-    fi
+    for ((i=0; i<PROXY_COUNT; i++)); do
+        local cred="${PROXY_CREDENTIALS[$i]}"
+        local user="${cred%:*}"
+        local pass="${cred#*:}"
+        local ipv6_addr="${IPV6_ADDRESSES[$i]:-}"
+        [[ -n "$ipv6_addr" ]] && {
+            local auto_port=$((START_PORT + i))
+            proxy_content+="$EXTERNAL_IPV4:$auto_port:$user:$pass\n"
+        }
+    done
 
     echo -e "$proxy_content" > "$PROXY_LIST_FILE"
     local proxy_count=$(wc -l < "$PROXY_LIST_FILE")
@@ -752,38 +647,29 @@ test_proxy_functionality() {
            --max-time 5 http://httpbin.org/ip >/dev/null 2>&1; then
             log "✅ SOCKS5 прокси работает корректно"
         else
-            warning "⚠️  SOCKS5 прокси может работать некорректно"
+            warning "⚠️  SOCKS5 прокси может работать некорректно. Проверьте логи: journalctl -u 3proxy -n 20"
         fi
     fi
 }
 
 show_statistics() {
-    log ""
     log "=========================================="
     log "🎉 УСТАНОВКА IPv6 PROXY ЗАВЕРШЕНА! (tg: @ExFox)"
     log "=========================================="
     log "📊 Сводка:"
     local real_count=$(wc -l < "$PROXY_LIST_FILE" 2>/dev/null || echo "0")
-    log "   • Всего прокси: $((real_count - 1))"
-    if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
-        log "   • SOCKS5: порты $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
-        log "   • HTTP: порты $HTTP_START_PORT-$((HTTP_START_PORT + PROXY_COUNT - 1))"
-    else
-        log "   • AUTO: порты $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
-    fi
+    log "   • Всего прокси: $real_count"
+    log "   • AUTO: порты $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
     log "   • IPv6 подсеть: $IPV6_SUBNET"
     log "   • Внешний IPv4: $EXTERNAL_IPV4"
     log "   • Интерфейс: $NETWORK_INTERFACE"
-    log ""
     log "🔧 Управление:"
     log "   • Статус: systemctl status 3proxy"
     log "   • Перезапуск: systemctl restart 3proxy"
     log "   • Логи: journalctl -u 3proxy -f"
-    log ""
     log "📁 Файлы:"
     log "   • Конфигурация: $CONFIG_FILE"
     log "   • Список прокси: $PROXY_LIST_FILE"
-    log ""
     log "=========================================="
 }
 
@@ -815,21 +701,11 @@ main() {
 
     get_user_input
 
-    log ""
     log "📋 Сводка:"
     log "   • IPv6: $IPV6_SUBNET"
     log "   • IPv4: $EXTERNAL_IPV4"
     log "   • Прокси: $PROXY_COUNT"
-    if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
-        log "   • SOCKS5: $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
-        log "   • HTTP: $HTTP_START_PORT-$((HTTP_START_PORT + PROXY_COUNT - 1))"
-        log "   • Тип: Классический (SOCKS5 + HTTP)"
-    else
-        log "   • AUTO: $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
-        log "   • Тип: Авто-определение (один порт)"
-    fi
-    [[ "$AUTH_CHOICE" == "1" ]] && log "   • Аутентификация: Одинаковая для всех" || log "   • Аутентификация: Случайная для каждого"
-    log ""
+    log "   • AUTO: $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
 
     INSTALLATION_STARTED=1
     log "Установка..."
@@ -844,16 +720,14 @@ main() {
     create_systemd_service
     start_3proxy
     test_proxy_functionality
-    generate_proxy_list
     show_statistics
+    generate_proxy_list
 
     if [[ -n "${PROXY_DOWNLOAD_URL:-}" ]]; then
-        log ""
         log "=========================================="
         log "✅ СПИСОК ПРОКСИ ЗАГРУЖЕН!"
         log "📥 Скачать: $PROXY_DOWNLOAD_URL"
         log "=========================================="
-        log ""
     fi
 }
 
