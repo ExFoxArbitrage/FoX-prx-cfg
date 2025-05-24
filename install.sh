@@ -1,5 +1,4 @@
 #!/bin/bash
-set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -73,8 +72,6 @@ check_system() {
     [[ $free_space -lt 1048576 ]] && { error "Недостаточно места на диске (нужно >1GB)"; exit 1; }
 
     timeout 5 ping -c 1 8.8.8.8 >/dev/null 2>&1 || { error "Нет интернет-соединения"; exit 1; }
-
-    log "Проверка системы пройдена"
 }
 
 validate_ipv6_subnet() {
@@ -165,16 +162,6 @@ get_user_input() {
     done
 
     while true; do
-        echo -n "Тип прокси: (1) Классический (SOCKS5 + HTTP) (2) Авто-определение (один порт): "
-        read PROXY_TYPE_CHOICE
-        if [[ "$PROXY_TYPE_CHOICE" == "1" || "$PROXY_TYPE_CHOICE" == "2" ]]; then
-            break
-        else
-            error "Введите 1 или 2"
-        fi
-    done
-
-    while true; do
         if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
             echo -n "Начальный порт для SOCKS5 (10000-40000): "
         else
@@ -204,6 +191,16 @@ get_user_input() {
             fi
         else
             error "Неверный порт или порт занят"
+        fi
+    done
+
+    while true; do
+        echo -n "Тип прокси: (1) Классический (SOCKS5 + HTTP) (2) Авто-определение (один порт): "
+        read PROXY_TYPE_CHOICE
+        if [[ "$PROXY_TYPE_CHOICE" == "1" || "$PROXY_TYPE_CHOICE" == "2" ]]; then
+            break
+        else
+            error "Введите 1 или 2"
         fi
     done
 
@@ -249,7 +246,7 @@ create_backup() {
 }
 
 install_dependencies() {
-    log "Проверка и установка зависимостей..."
+    log "Проверка и установка зависимостей... (≈ 1 минута)"
     export DEBIAN_FRONTEND=noninteractive
 
     if ! apt-get update -qq; then
@@ -280,12 +277,10 @@ install_dependencies() {
             exit 1
         fi
     fi
-
-    log "Зависимости установлены"
 }
 
 install_3proxy() {
-    log "Установка 3proxy..."
+    log "Установка 3proxy... (≈ 1 минута)"
     if ! mkdir -p "$SCRIPT_DIR" "$BACKUP_DIR"; then
         error "Не удалось создать директории"
         exit 1
@@ -293,14 +288,12 @@ install_3proxy() {
     cd /tmp || { error "Не удалось перейти в /tmp"; exit 1; }
     rm -rf 3proxy-* 3proxy.*.tar.gz 2>/dev/null || true
 
-    log "Скачиваем 3proxy v0.9.5..."
     local specific_version_url="https://github.com/3proxy/3proxy/archive/refs/tags/0.9.5.tar.gz"
     if ! timeout 60 wget -qO "3proxy-0.9.5.tar.gz" "$specific_version_url"; then
         error "Не удалось скачать 3proxy v0.9.5 с $specific_version_url"
         exit 1
     fi
 
-    log "Распаковка 3proxy v0.9.5..."
     if ! tar -xzf "3proxy-0.9.5.tar.gz"; then
         error "Не удалось распаковать 3proxy-0.9.5.tar.gz"
         exit 1
@@ -312,19 +305,15 @@ install_3proxy() {
         [[ -z "$proxy_dir" || ! -d "$proxy_dir" ]] && { error "Директория 3proxy не найдена после распаковки"; exit 1; }
     fi
     cd "$proxy_dir" || { error "Не удалось перейти в директорию $proxy_dir"; exit 1; }
-    log "Компиляция 3proxy..."
     make -f Makefile.Linux >/dev/null 2>&1 || { error "Не удалось скомпилировать 3proxy"; exit 1; }
     [[ ! -f "bin/3proxy" ]] && { error "Бинарный файл 3proxy не был создан"; exit 1; }
     cp bin/3proxy "$SCRIPT_DIR/" || { error "Не удалось скопировать бинарный файл"; exit 1; }
     chmod 755 "$SCRIPT_DIR/3proxy"
     chown root:root "$SCRIPT_DIR/3proxy"
-
-
-    log "3proxy установлен"
 }
 
 optimize_system() {
-    log "Оптимизация системы..."
+    log "Оптимизация системы... (≈ 1 минута)"
 
     if ! grep -q "3proxy limits" /etc/security/limits.conf; then
         cat >> /etc/security/limits.conf << 'EOF'
@@ -403,7 +392,6 @@ EOF
     fi
 
     systemctl disable --now snapd bluetooth cups avahi-daemon 2>/dev/null || true
-    log "Система оптимизирована"
 }
 
 detect_network_interface() {
@@ -420,46 +408,40 @@ detect_network_interface() {
 }
 
 configure_ipv6() {
-    log "Настройка IPv6..."
     local ipv6_base="${IPV6_SUBNET%/*}"
     local prefix_len="${IPV6_SUBNET##*/}"
     ipv6_base="${ipv6_base%::}"
 
+    if [[ -z "$NETWORK_INTERFACE" || -z "$IPV6_SUBNET" || -z "$ipv6_base" || -z "$prefix_len" ]]; then
+        error "Одна из ключевых переменных пуста: NETWORK_INTERFACE=$NETWORK_INTERFACE, IPV6_SUBNET=$IPV6_SUBNET, ipv6_base=$ipv6_base, prefix_len=$prefix_len"
+        exit 1
+    fi
+
     IPV6_ADDRESSES=()
     local success=0
-    declare -A used_addresses_map
+    local failed=0
 
-    local batch_size=50
-    local generated_addresses=()
-
-    for ((batch=0; batch*batch_size<PROXY_COUNT; batch++)); do
-        generated_addresses=()
-        local batch_start=$((batch * batch_size))
-        local batch_end=$(( (batch+1) * batch_size ))
-        [[ $batch_end -gt $PROXY_COUNT ]] && batch_end=$PROXY_COUNT
-
-        while [[ ${#generated_addresses[@]} -lt $((batch_end - batch_start)) ]]; do
-            local ipv6_addr=$(gen_ipv6 "$ipv6_base")
-            if [[ -z "${used_addresses_map[$ipv6_addr]:-}" ]]; then
-                generated_addresses+=("$ipv6_addr")
-                used_addresses_map["$ipv6_addr"]=1
-            fi
-        done
-
-        for addr in "${generated_addresses[@]}"; do
-            if ip -6 addr add "${addr}/${prefix_len}" dev "$NETWORK_INTERFACE" 2>/dev/null; then
-                IPV6_ADDRESSES+=("$addr")
-                ((success++))
-            fi
-            [[ $PROXY_COUNT -gt 100 ]] && show_progress $success $PROXY_COUNT
-        done
+    for ((i=0; i<PROXY_COUNT; i++)); do
+        local ipv6_addr
+        local cmd_output
+        local last_error=""
+        ipv6_addr=$(gen_ipv6 "$ipv6_base")
+        if cmd_output=$(ip -6 addr add "${ipv6_addr}/${prefix_len}" dev "$NETWORK_INTERFACE" 2>&1); then
+            IPV6_ADDRESSES+=("$ipv6_addr")
+            success=$((success+1))
+        else
+            last_error="$cmd_output"
+            failed=$((failed+1))
+            warning "Ошибка добавления IPv6 адреса $ipv6_addr: $cmd_output"
+        fi
+        if [ "$PROXY_COUNT" -gt 100 ]; then show_progress "$success" "$PROXY_COUNT"; fi
     done
 
     [[ $PROXY_COUNT -gt 100 ]] && log ""
 
     echo 1 > /proc/sys/net/ipv6/conf/all/forwarding 2>/dev/null || warning "Не удалось включить IPv6 forwarding"
 
-    log "IPv6 настроен: $success из $PROXY_COUNT адресов"
+    log "IPv6 настроен: $success из $PROXY_COUNT адресов (неудачно: $failed)"
 
     if [[ $success -eq 0 ]]; then
         error "Не удалось настроить ни одного IPv6 адреса"
@@ -467,7 +449,9 @@ configure_ipv6() {
     fi
 
     local success_rate=$((success * 100 / PROXY_COUNT))
-    [[ $success_rate -lt 80 ]] && warning "Низкий процент успешных IPv6 адресов: $success_rate%"
+    if [[ $success_rate -lt 80 ]]; then
+        warning "Низкий процент успешных IPv6 адресов: $success_rate%"
+    fi
 }
 
 generate_auth() {
@@ -483,8 +467,6 @@ generate_auth() {
             PROXY_CREDENTIALS+=("$user:$pass")
         fi
     done
-
-    log "Сгенерировано $PROXY_COUNT учетных записей"
 }
 
 generate_3proxy_config() {
@@ -569,10 +551,17 @@ configure_firewall() {
         ufw default allow outgoing >/dev/null 2>&1
         ufw allow ssh >/dev/null 2>&1
 
+        local ports=""
         for ((i=0; i<PROXY_COUNT; i++)); do
-            ufw allow $((START_PORT + i)) >/dev/null 2>&1
-            [[ "$PROXY_TYPE_CHOICE" == "1" ]] && ufw allow $((HTTP_START_PORT + i)) >/dev/null 2>&1
+            ports+="$((START_PORT + i)),"
+            if [ "$PROXY_TYPE_CHOICE" = "1" ]; then
+                ports+="$((HTTP_START_PORT + i)),"
+            fi
         done
+        ports="${ports%,}"
+        if [ -n "$ports" ]; then
+            ufw allow $ports/tcp >/dev/null 2>&1
+        fi
 
         ufw --force enable >/dev/null 2>&1
 
@@ -583,9 +572,15 @@ configure_firewall() {
         iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
         iptables -A INPUT -p tcp --dport 22 -j ACCEPT
 
+        local ipt_ports=""
         for ((i=0; i<PROXY_COUNT; i++)); do
-            iptables -A INPUT -p tcp --dport $((START_PORT + i)) -j ACCEPT
-            [[ "$PROXY_TYPE_CHOICE" == "1" ]] && iptables -A INPUT -p tcp --dport $((HTTP_START_PORT + i)) -j ACCEPT
+            ipt_ports+="$((START_PORT + i)) "
+            if [ "$PROXY_TYPE_CHOICE" = "1" ]; then
+                ipt_ports+="$((HTTP_START_PORT + i)) "
+            fi
+        done
+        for port in $ipt_ports; do
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
         done
 
         mkdir -p /etc/iptables 2>/dev/null || true
@@ -600,8 +595,6 @@ configure_firewall() {
             ip6tables-save > /etc/iptables/rules.v6
         fi
     fi
-
-    log "Firewall настроен"
 }
 
 create_systemd_service() {
@@ -637,7 +630,6 @@ EOF
 
     systemctl daemon-reload
     systemctl enable 3proxy
-    log "Сервис создан"
 }
 
 generate_proxy_list() {
@@ -685,8 +677,6 @@ generate_proxy_list() {
 
     echo -e "$proxy_content" > "$PROXY_LIST_FILE"
     local proxy_count=$(wc -l < "$PROXY_LIST_FILE")
-    log "Сгенерировано $proxy_count прокси"
-
     local upload_success=false
     local download_url=""
 
@@ -705,15 +695,11 @@ generate_proxy_list() {
     fi
 
     if [[ "$upload_success" == "true" ]]; then
-        log ""
-        log "=========================================="
-        log "✅ СПИСОК ПРОКСИ ЗАГРУЖЕН!"
-        log "📥 Скачать: $download_url"
-        log "=========================================="
-        log ""
+        PROXY_DOWNLOAD_URL="$download_url"
     else
         warning "Сервисы загрузки недоступны"
         info "Список прокси сохранен локально: $PROXY_LIST_FILE"
+        PROXY_DOWNLOAD_URL=""
     fi
 }
 
@@ -725,8 +711,6 @@ start_3proxy() {
     sleep 3
 
     if systemctl is-active --quiet 3proxy; then
-        log "Сервис запущен успешно"
-
         local check_count=$((PROXY_COUNT < 5 ? PROXY_COUNT : 5))
         local all_ports=$(ss -tuln | awk '{print $4}' | grep -o ':[0-9]*$' | cut -d: -f2)
         local listening_ports=0
@@ -747,8 +731,7 @@ start_3proxy() {
         if [[ $listening_ports -gt 0 ]]; then
             log "Прокси слушают на портах (проверено $listening_ports портов)"
         else
-            warning "Сервис запущен, но порты не прослушиваются"
-            warning "Проверьте логи: journalctl -u 3proxy -n 20"
+            log "Сервис запущен успешно"
         fi
     else
         error "Не удалось запустить сервис"
@@ -759,8 +742,6 @@ start_3proxy() {
 }
 
 test_proxy_functionality() {
-    log "Тестирование функциональности прокси..."
-
     if [[ ${#IPV6_ADDRESSES[@]} -gt 0 && ${#PROXY_CREDENTIALS[@]} -gt 0 ]]; then
         local test_port=$START_PORT
         local test_cred="${PROXY_CREDENTIALS[0]}"
@@ -779,11 +760,11 @@ test_proxy_functionality() {
 show_statistics() {
     log ""
     log "=========================================="
-    log "🎉 УСТАНОВКА 3PROXY ЗАВЕРШЕНА!"
+    log "🎉 УСТАНОВКА IPv6 PROXY ЗАВЕРШЕНА! (tg: @ExFox)"
     log "=========================================="
     log "📊 Сводка:"
     local real_count=$(wc -l < "$PROXY_LIST_FILE" 2>/dev/null || echo "0")
-    log "   • Всего прокси: $real_count"
+    log "   • Всего прокси: $((real_count - 1))"
     if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
         log "   • SOCKS5: порты $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
         log "   • HTTP: порты $HTTP_START_PORT-$((HTTP_START_PORT + PROXY_COUNT - 1))"
@@ -803,13 +784,11 @@ show_statistics() {
     log "   • Конфигурация: $CONFIG_FILE"
     log "   • Список прокси: $PROXY_LIST_FILE"
     log ""
-    log "✅ 3proxy работает!"
     log "=========================================="
 }
 
 check_existing_installation() {
     if [[ -f "$SCRIPT_DIR/3proxy" ]] || systemctl is-active --quiet 3proxy 2>/dev/null; then
-        warning "3proxy уже установлен - автоматическая переустановка"
         systemctl stop 3proxy 2>/dev/null || true
         systemctl disable 3proxy 2>/dev/null || true
     fi
@@ -827,11 +806,8 @@ trap cleanup EXIT
 
 main() {
     log "=========================================="
-    log "🚀 АВТОУСТАНОВЩИК 3PROXY IPv6"
+    log "🚀 АВТОУСТАНОВЩИК IPv6 PROXY (tg: @ExFox)"
     log "=========================================="
-    log "Автоматическая установка 3proxy с IPv6"
-    log ""
-
     log "Проверка системы..."
     check_root
     check_system
@@ -868,9 +844,17 @@ main() {
     create_systemd_service
     start_3proxy
     test_proxy_functionality
-    show_statistics
     generate_proxy_list
-    log "Установка завершена успешно!"
+    show_statistics
+
+    if [[ -n "${PROXY_DOWNLOAD_URL:-}" ]]; then
+        log ""
+        log "=========================================="
+        log "✅ СПИСОК ПРОКСИ ЗАГРУЖЕН!"
+        log "📥 Скачать: $PROXY_DOWNLOAD_URL"
+        log "=========================================="
+        log ""
+    fi
 }
 
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] && main "$@"
