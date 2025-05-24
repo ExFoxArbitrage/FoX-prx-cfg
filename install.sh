@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+# set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -9,7 +9,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="/home/3proxy"
 CONFIG_FILE="/home/3proxy/3proxy.cfg"
-SERVICE_FILE="/tmp/3proxy.pid"
+SERVICE_FILE="/etc/systemd/system/3proxy.service"
 PROXY_LIST_FILE="/tmp/proxy_list.txt"
 BACKUP_DIR="/home/3proxy/backup"
 
@@ -18,7 +18,7 @@ error() { echo -e "${RED}[ОШИБКА]${NC} $1" >&2; }
 warning() { echo -e "${YELLOW}[ВНИМАНИЕ]${NC} $1"; }
 info() { echo -e "${BLUE:-}[ИНФО]${NC:-} $1"; }
 
-random_string() { tr -dc A-Za-z0-9 </dev/urandom | head -c12; }
+random_string() { tr -dc A-Za-z0-9 </dev/urandom 2>/dev/null | head -c12; }
 
 show_progress() {
     local current=$1
@@ -35,7 +35,7 @@ show_progress() {
 }
 
 gen_ipv6() {
-    local hex_chars=$(tr -dc '0-9a-f' < /dev/urandom | head -c 16)
+    local hex_chars=$(tr -dc '0-9a-f' < /dev/urandom 2>/dev/null | head -c 16)
     local block1="${hex_chars:0:4}"
     local block2="${hex_chars:4:4}"
     local block3="${hex_chars:8:4}"
@@ -186,7 +186,6 @@ create_backup() {
         local backup_filename="3proxy.cfg.$(date +%Y%m%d_%H%M%S)"
         local backup_path="$BACKUP_DIR/$backup_filename"
         cp "$CONFIG_FILE" "$backup_path" || return 1
-        log "Создана резервная копия конфигурации: $backup_path"
     fi
     return 0
 }
@@ -195,13 +194,13 @@ install_dependencies() {
     log "Проверка и установка зависимостей... (≈ 1 минута)"
     export DEBIAN_FRONTEND=noninteractive
 
-    if ! apt-get update -qq; then
+    if ! apt-get update -qq >/dev/null 2>&1; then
         error "Не удалось обновить список пакетов"
         exit 1
     fi
 
     local critical_packages="make build-essential wget curl"
-    if ! apt-get install -y $critical_packages; then
+    if ! apt-get install -y $critical_packages >/dev/null 2>&1; then
         error "Не удалось установить критически важные пакеты: $critical_packages"
         exit 1
     fi
@@ -217,7 +216,7 @@ install_dependencies() {
     if [[ ${#missing_packages[@]} -eq 0 ]]; then
         log "Все дополнительные зависимости уже установлены"
     else
-        if ! apt-get install -y "${missing_packages[@]}"; then
+        if ! apt-get install -y "${missing_packages[@]}" >/dev/null 2>&1; then
             error "Не удалось установить зависимости: ${missing_packages[*]}"
             error "Попробуйте выполнить вручную: apt-get install -y ${missing_packages[*]}"
             exit 1
@@ -235,12 +234,12 @@ install_3proxy() {
     rm -rf 3proxy-* 3proxy.*.tar.gz 2>/dev/null || true
 
     local specific_version_url="https://github.com/3proxy/3proxy/archive/refs/tags/0.9.5.tar.gz"
-    if ! timeout 60 wget -qO "3proxy-0.9.5.tar.gz" "$specific_version_url"; then
+    if ! timeout 60 wget -qO "3proxy-0.9.5.tar.gz" "$specific_version_url" >/dev/null 2>&1; then
         error "Не удалось скачать 3proxy v0.9.5 с $specific_version_url"
         exit 1
     fi
 
-    if ! tar -xzf "3proxy-0.9.5.tar.gz"; then
+    if ! tar -xzf "3proxy-0.9.5.tar.gz" >/dev/null 2>&1; then
         error "Не удалось распаковать 3proxy-0.9.5.tar.gz"
         exit 1
     fi
@@ -355,7 +354,7 @@ EOF
         warning "Некоторые параметры ядра не применились"
     fi
 
-    systemctl disable --now snapd bluetooth cups avahi-daemon 2>/dev/null || true
+    systemctl disable --now snapd bluetooth cups avahi-daemon >/dev/null 2>&1 || true
 }
 
 detect_network_interface() {
@@ -390,7 +389,7 @@ configure_ipv6() {
         local cmd_output
         local last_error=""
         ipv6_addr=$(gen_ipv6 "$ipv6_base")
-        if cmd_output=$(ip -6 addr add "${ipv6_addr}/${prefix_len}" dev "$NETWORK_INTERFACE" 2>&1); then
+        if cmd_output=$(ip -6 addr add "${ipv6_addr}/${prefix_len}" dev "$NETWORK_INTERFACE" 2>&1 >/dev/null); then
             IPV6_ADDRESSES+=("$ipv6_addr")
             success=$((success+1))
         else
@@ -423,8 +422,9 @@ generate_auth() {
     PROXY_CREDENTIALS=()
 
     for ((i=0; i<PROXY_COUNT; i++)); do
+        local user="user$(printf "%04d" $i)"
         local pass=$(random_string)
-        PROXY_CREDENTIALS+=("ExFox:$pass")
+        PROXY_CREDENTIALS+=("$user:$pass")
     done
 }
 
@@ -434,51 +434,52 @@ generate_3proxy_config() {
     mkdir -p "$(dirname "$CONFIG_FILE")" || { error "Не удалось создать директорию для конфигурации"; exit 1; }
 
     cat > "$CONFIG_FILE" << 'EOF'
-daemon
 timeouts 1 5 30 60 180 1800 15 60
-stacksize 65536
-nscache 65536
-maxconn 5000
-log /dev/null
 flush
-pidfile /var/run/3proxy.pid
+log /var/log/3proxy.log D
+logformat "- +_L%t.%. %N.%p %E"
+rotate 1
+maxconn 5000
+stacksize 65536
+nserver 8.8.8.8
+nserver 1.1.1.1
+nscache 65536
+nscache6 65535
 
+auth strong
 EOF
 
     local users_line="users "
     for cred in "${PROXY_CREDENTIALS[@]}"; do
-        users_line+="ExFox:CL:${cred#*:} "
+        local user="${cred%:*}"
+        local pass="${cred#*:}"
+        users_line+="$user:CL:$pass "
     done
     echo "$users_line" >> "$CONFIG_FILE"
     echo "" >> "$CONFIG_FILE"
 
-    local config_content=""
+    for cred in "${PROXY_CREDENTIALS[@]}"; do
+        local user="${cred%:*}"
+        echo "allow $user" >> "$CONFIG_FILE"
+    done
+    echo "" >> "$CONFIG_FILE"
+
     for ((i=0; i<PROXY_COUNT; i++)); do
         local ipv6_addr="${IPV6_ADDRESSES[$i]:-}"
-        local user_pass_pair="${PROXY_CREDENTIALS[$i]:-}"
-        [[ -z "$user_pass_pair" ]] && continue
         [[ -z "$ipv6_addr" || -z "$EXTERNAL_IPV4" ]] && continue
         local auto_port=$((START_PORT + i))
-        config_content+="auth strong cache
-allow ExFox
-auto -n -a -s0 -64 -g -olSO_REUSEADDR,SO_REUSEPORT -ocTCP_TIMESTAMPS,TCP_NODELAY -osTCP_NODELAY -p$auto_port -i$EXTERNAL_IPV4 -e$ipv6_addr
-flush
-
-"
+        echo "auto -p$auto_port -n -a -s0 -64 -g -olSO_REUSEADDR,SO_REUSEPORT -ocTCP_TIMESTAMPS,TCP_NODELAY -osTCP_NODELAY -i$EXTERNAL_IPV4 -e$ipv6_addr" >> "$CONFIG_FILE"
     done
-
-    echo "$config_content" >> "$CONFIG_FILE"
-    log "Конфигурация создана: $PROXY_COUNT AUTO прокси (SOCKS5 + HTTP)"
 }
 
 configure_firewall() {
     log "Настройка firewall..."
 
     if command -v ufw >/dev/null 2>&1; then
-        ufw --force reset >/dev/null 2>&1
-        ufw default deny incoming >/dev/null 2>&1
-        ufw default allow outgoing >/dev/null 2>&1
-        ufw allow ssh >/dev/null 2>&1
+        ufw --force reset >/dev/null 2>&1 || true
+        ufw default deny incoming >/dev/null 2>&1 || true
+        ufw default allow outgoing >/dev/null 2>&1 || true
+        ufw allow ssh >/dev/null 2>&1 || true
 
         local ports=""
         for ((i=0; i<PROXY_COUNT; i++)); do
@@ -486,36 +487,44 @@ configure_firewall() {
         done
         ports="${ports%,}"
         if [ -n "$ports" ]; then
-            ufw allow $ports/tcp >/dev/null 2>&1
+            ufw allow $ports/tcp >/dev/null 2>&1 || true
         fi
 
-        ufw --force enable >/dev/null 2>&1
+        ufw --force enable >/dev/null 2>&1 || true
 
     elif command -v iptables >/dev/null 2>&1; then
-        iptables -F; iptables -X; iptables -t nat -F; iptables -t nat -X
-        iptables -P INPUT DROP; iptables -P FORWARD ACCEPT; iptables -P OUTPUT ACCEPT
-        iptables -A INPUT -i lo -j ACCEPT
-        iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-        iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+        iptables -F || true
+        iptables -X || true
+        iptables -t nat -F || true
+        iptables -t nat -X || true
+        iptables -P INPUT DROP || true
+        iptables -P FORWARD ACCEPT || true
+        iptables -P OUTPUT ACCEPT || true
+        iptables -A INPUT -i lo -j ACCEPT || true
+        iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT || true
+        iptables -A INPUT -p tcp --dport 22 -j ACCEPT || true
 
         local ipt_ports=""
         for ((i=0; i<PROXY_COUNT; i++)); do
             ipt_ports+="$((START_PORT + i)) "
         done
         for port in $ipt_ports; do
-            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+            iptables -A INPUT -p tcp --dport "$port" -j ACCEPT || true
         done
 
         mkdir -p /etc/iptables 2>/dev/null || true
-        iptables-save > /etc/iptables/rules.v4
+        iptables-save > /etc/iptables/rules.v4 || true
 
         if command -v ip6tables >/dev/null 2>&1; then
-            ip6tables -F; ip6tables -X
-            ip6tables -P INPUT DROP; ip6tables -P FORWARD ACCEPT; ip6tables -P OUTPUT ACCEPT
-            ip6tables -A INPUT -i lo -j ACCEPT
-            ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-            ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT
-            ip6tables-save > /etc/iptables/rules.v6
+            ip6tables -F || true
+            ip6tables -X || true
+            ip6tables -P INPUT DROP || true
+            ip6tables -P FORWARD ACCEPT || true
+            ip6tables -P OUTPUT ACCEPT || true
+            ip6tables -A INPUT -i lo -j ACCEPT || true
+            ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT || true
+            ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT || true
+            ip6tables-save > /etc/iptables/rules.v6 || true
         fi
     fi
 }
@@ -523,27 +532,20 @@ configure_firewall() {
 create_systemd_service() {
     log "Создание сервиса..."
 
-    cat > "$SERVICE_FILE" << EOF
+    cat > "$SERVICE_FILE" << 'EOF'
 [Unit]
 Description=3proxy прокси сервер
 After=network.target
 Wants=network.target
 
 [Service]
-Type=forking
-PIDFile=/var/run/3proxy.pid
-ExecStart=$SCRIPT_DIR/3proxy $CONFIG_FILE
-WorkingDirectory=$SCRIPT_DIR
-ExecReload=/bin/kill -USR1 \$MAINPID
-ExecStop=/bin/kill -TERM \$MAINPID
+Type=simple
+ExecStart=/home/3proxy/3proxy /home/3proxy/3proxy.cfg
+WorkingDirectory=/home/3proxy
 Restart=always
 RestartSec=5
 User=root
 Group=root
-NoNewPrivileges=true
-ProtectSystem=strict
-BindReadOnlyPaths=$SCRIPT_DIR
-ReadWritePaths=/var/log /var/run /tmp
 LimitNOFILE=1048576
 LimitNPROC=1048576
 
@@ -551,14 +553,15 @@ LimitNPROC=1048576
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    systemctl enable 3proxy
+    systemctl daemon-reload >/dev/null 2>&1
+    systemctl enable 3proxy >/dev/null 2>&1
 }
 
 generate_proxy_list() {
     log "Генерация списка прокси..."
 
-    local proxy_content=""
+    > "$PROXY_LIST_FILE"
+
     for ((i=0; i<PROXY_COUNT; i++)); do
         local cred="${PROXY_CREDENTIALS[$i]}"
         local user="${cred%:*}"
@@ -566,11 +569,9 @@ generate_proxy_list() {
         local ipv6_addr="${IPV6_ADDRESSES[$i]:-}"
         [[ -n "$ipv6_addr" ]] && {
             local auto_port=$((START_PORT + i))
-            proxy_content+="$EXTERNAL_IPV4:$auto_port:$user:$pass\n"
+            echo "$EXTERNAL_IPV4:$auto_port:$user:$pass" >> "$PROXY_LIST_FILE"
         }
     done
-
-    echo -e "$proxy_content" > "$PROXY_LIST_FILE"
     local proxy_count=$(wc -l < "$PROXY_LIST_FILE")
     local upload_success=false
     local download_url=""
@@ -599,39 +600,31 @@ generate_proxy_list() {
 }
 
 start_3proxy() {
-    log "Запуск сервиса..."
+    log "Запуск 3Proxy..."
     systemctl stop 3proxy 2>/dev/null || true
     sleep 1
-    systemctl start 3proxy
+    systemctl start 3proxy >/dev/null 2>&1 || { error "Не удалось запустить сервис 3proxy"; exit 1; }
     sleep 3
 
     if systemctl is-active --quiet 3proxy; then
-        local check_count=$((PROXY_COUNT < 5 ? PROXY_COUNT : 5))
-        local all_ports=$(ss -tuln | awk '{print $4}' | grep -o ':[0-9]*$' | cut -d: -f2)
-        local listening_ports=0
 
-        for ((i=0; i<check_count; i++)); do
-            local socks_port=$((START_PORT + i))
-            if echo "$all_ports" | grep -q "^$socks_port$"; then
-                ((listening_ports++))
-            fi
-            if [[ "$PROXY_TYPE_CHOICE" == "1" ]]; then
-                local http_port=$((HTTP_START_PORT + i))
-                if echo "$all_ports" | grep -q "^$http_port$"; then
-                    ((listening_ports++))
-                fi
-            fi
-        done
+        local check_count=$((PROXY_COUNT < 5 ? PROXY_COUNT : 5))
+        local listening_ports=$(ss -tuln 2>/dev/null | grep "$EXTERNAL_IPV4:" | wc -l)
 
         if [[ $listening_ports -gt 0 ]]; then
-            log "Прокси слушают на портах (проверено $listening_ports портов)"
+            log "Прокси слушают на портах (активно $listening_ports портов)"
         else
-            log "Сервис запущен успешно"
+            warning "Сервис запущен, но порты не прослушиваются"
+            warning "Проверьте логи: journalctl -u 3proxy -n 20"
         fi
     else
-        error "Не удалось запустить сервис"
-        systemctl status 3proxy --no-pager
-        journalctl -u 3proxy -n 10 --no-pager
+        error "Сервис 3proxy не активен после запуска"
+        log "Статус сервиса:"
+        systemctl status 3proxy --no-pager 2>/dev/null
+        log "Логи сервиса:"
+        journalctl -u 3proxy -n 20 --no-pager 2>/dev/null
+        log "Логи 3proxy:"
+        tail -20 /var/log/3proxy.log 2>/dev/null || log "Лог файл не найден"
         exit 1
     fi
 }
@@ -645,9 +638,9 @@ test_proxy_functionality() {
 
         if timeout 10 curl -s --socks5 "$test_user:$test_pass@$EXTERNAL_IPV4:$test_port" \
            --max-time 5 http://httpbin.org/ip >/dev/null 2>&1; then
-            log "✅ SOCKS5 прокси работает корректно"
+            log "✅ Прокси работает корректно"
         else
-            warning "⚠️  SOCKS5 прокси может работать некорректно. Проверьте логи: journalctl -u 3proxy -n 20"
+            warning "⚠️ Прокси может работать некорректно. Проверьте логи: journalctl -u 3proxy -n 20"
         fi
     fi
 }
@@ -691,6 +684,7 @@ cleanup() {
 trap cleanup EXIT
 
 main() {
+    clear
     log "=========================================="
     log "🚀 АВТОУСТАНОВЩИК IPv6 PROXY (tg: @ExFox)"
     log "=========================================="
@@ -704,8 +698,8 @@ main() {
     log "📋 Сводка:"
     log "   • IPv6: $IPV6_SUBNET"
     log "   • IPv4: $EXTERNAL_IPV4"
-    log "   • Прокси: $PROXY_COUNT"
-    log "   • AUTO: $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
+    log "   • Количество прокси: $PROXY_COUNT"
+    log "   • Порты: $START_PORT-$((START_PORT + PROXY_COUNT - 1))"
 
     INSTALLATION_STARTED=1
     log "Установка..."
