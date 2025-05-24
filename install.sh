@@ -485,9 +485,6 @@ configure_firewall() {
         for ((i=0; i<PROXY_COUNT; i++)); do
             ports+="$((START_PORT + i)),"
         done
-        
-        END_PORT=$((START_PORT + PROXY_COUNT - 1))
-        sudo ufw allow "${START_PORT}:${END_PORT}/tcp"
 
         ports="${ports%,}"
         if [ -n "$ports" ]; then
@@ -720,6 +717,9 @@ main() {
     test_proxy_functionality
     show_statistics
     generate_proxy_list
+
+    END_PORT=$((START_PORT + PROXY_COUNT - 1))
+    sudo ufw allow "${START_PORT}:${END_PORT}/tcp"
 
     if [[ -n "${PROXY_DOWNLOAD_URL:-}" ]]; then
         log "=========================================="
