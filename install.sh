@@ -485,6 +485,10 @@ configure_firewall() {
         for ((i=0; i<PROXY_COUNT; i++)); do
             ports+="$((START_PORT + i)),"
         done
+        
+        END_PORT=$((START_PORT + PROXY_COUNT - 1))
+        sudo ufw allow "${START_PORT}:${END_PORT}/tcp"
+
         ports="${ports%,}"
         if [ -n "$ports" ]; then
             ufw allow $ports/tcp >/dev/null 2>&1 || true
