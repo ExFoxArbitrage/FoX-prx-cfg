@@ -720,7 +720,7 @@ main() {
     generate_proxy_list
 
     END_PORT=$((START_PORT + PROXY_COUNT - 1))
-    sudo ufw allow "${START_PORT}:${END_PORT}/tcp"
+    sudo ufw allow "${START_PORT}:${END_PORT}/tcp" > /dev/null 2>&1
 
     if [[ -n "${PROXY_DOWNLOAD_URL:-}" ]]; then
         log "=========================================="
